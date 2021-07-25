@@ -1,0 +1,141 @@
+# 5-8-1 neurons in 3-layer best 52.7% Mohammad Fathian
+# 5-4-1 48% 不行 2/3 * (input+output)
+# 12-8-1
+# 当前 53%
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+data = pd.read_excel('/USd_to_GDP.xlsx')
+# data = pd.read_excel('GBP_to_EUR.xlsx')
+
+# columns = ["ratio", "difference", "return"]
+ratio = pd.DataFrame(data, columns=["ratio"])
+ratio = np.array(ratio)
+trend = pd.DataFrame(data, columns=["trend"])
+trend = np.array(trend)
+dratio = pd.DataFrame(data, columns=["difference"])
+dratio = np.array(dratio)
+rratio = pd.DataFrame(data, columns=["return"])
+rratio = np.array(rratio)
+datain = dratio
+
+for i in range(len(ratio)):
+    datain[i] = float(datain[i] - np.min(datain))/(np.max(datain)- np.min(datain))
+index = ratio.shape[0]
+
+datain = np.mat(datain)
+
+num_train = 2000
+num_test = 501
+num_total = num_train + num_test
+
+neuron_hidden = 8
+neuron_input = 12
+neuron_output = 1
+N = neuron_input  # number of previous daily data for prediction
+
+IDs = np.random.randint(60000, size=8000)
+trainID = list(range(N, num_train-1))
+testID = list(range(num_train+N, num_total-1))
+
+# No bias needed in sigmoid activation
+weight_hidden = np.mat(np.random.uniform(low=-1.0, high=1.0, size=(neuron_hidden,neuron_input)))
+bias_hidden = np.mat(np.random.uniform(low=-0.1, high=0.1, size=(neuron_hidden, 1)))
+weight_out = np.mat(np.random.uniform(low=-1.0, high=1.0, size=(neuron_output, neuron_hidden)))
+bias_out = np.mat(np.random.uniform(low=-0.1, high=0.1, size=(neuron_output, 1)))
+
+
+epochs = 3000
+accurancy = np.zeros(epochs)
+RMSE = np.zeros(epochs)
+for epoch in range(epochs):
+    for i in trainID:
+        alpha = 1000/(2000+epoch)-0.1
+        dv = np.mat(np.zeros(neuron_hidden))  # result passed back through derivative of activation function 15*1
+        dv = dv.reshape(neuron_hidden, 1)
+        # delta_out = np.mat(np.zeros(10))  # result passed back through derivative of activation function 15*1
+        # delta_out = delta_out.reshape(10, 1)
+        delta_hidden = np.mat(np.zeros(neuron_hidden))  # result passed back through derivative of activation function 15*1
+        delta_hidden = delta_hidden.reshape(neuron_hidden, 1)
+
+    # forward
+        inputs = datain[i-N: i]
+        dk = dratio[i + 1]
+        # hidden layer
+        combin_hidden = weight_hidden * inputs + bias_hidden
+        v = 1 / (1 + np.exp(-combin_hidden))
+        # output layer
+        combin_output = weight_out * v + bias_out
+        yk = 1 / (1 + np.exp(-combin_output))
+
+    # backward propagation
+        # value after passing the derivative of activation funciton
+        delta_out = yk*(1-yk) * (dk-yk)
+        sumdk = (delta_out.T*weight_out).T
+        for j in range(neuron_hidden):
+            dv[j] = v[j]*(1-v[j])
+            delta_hidden[j] = dv[j] * sumdk[j]
+        # bp at output layer
+        weight_out = weight_out + alpha*delta_out*v.T
+        bias_out = bias_out + alpha*delta_out
+        # bp at hidden layer
+        weight_hidden = weight_hidden + alpha*delta_hidden*inputs.T
+        bias_hidden = bias_hidden + alpha*delta_hidden
+    # forecasting
+    val_est = np.zeros(len(ratio))
+
+    for i in testID:
+        # forward
+        inputs = datain[i - N: i]
+        dk = dratio[i + 1]
+
+        # hidden layer
+        combin_hidden = weight_hidden * inputs + bias_hidden
+        v = 1 / (1 + np.exp(-combin_hidden))
+        # output layer
+        combin_output = weight_out * v + bias_out
+        yk = 1 / (1 + np.exp(-combin_output))
+        val_est[i+1] = yk+ratio[i] #yk acts like dratio[i+1]
+
+    CNT_total = 0
+    CNT_correct = 0
+    trend_est = np.zeros(len(ratio))
+    sumSE = 0
+    for i in range(num_train + N + 1, num_total):
+        # calculate Root Mean Square Error
+        dk =ratio[i]
+        sq_error = (val_est[i]-dk)*(val_est[i]-dk)
+        sumSE += sq_error
+        # calculate accurancy
+        CNT_total += 1
+        if val_est[i] > val_est[i - 1]:
+            trend_est[i] = 1
+        else:
+            trend_est[i] = 0
+        if trend[i] == trend_est[i]:
+            CNT_correct = CNT_correct + 1
+    accurancy[epoch] = CNT_correct / CNT_total
+    RMSE[epoch] = np.sqrt(sumSE/CNT_total)
+    print("epoch", epoch, ":")
+    print("accurancy: ", CNT_correct / CNT_total)
+    print("RMSE", RMSE[epoch])
+
+# final forecast data plot
+plt.figure(0)
+plt.plot(range(num_train+N+1, num_total-1), ratio[num_train+N+1:num_total-1])
+plt.plot(range(num_train+N+1, num_total-1), val_est[num_train+N+1:num_total-1])
+plt.legend(["raw data", "predicted data"])
+print(val_est)
+
+# trend accurancy Versus epochs
+plt.figure(1)
+plt.plot(range(epochs), accurancy[:])
+plt.xlabel("epochs")
+plt.ylabel("trend accurancy")
+
+plt.figure(2)
+plt.plot(range(epochs), RMSE[:])
+plt.xlabel("epochs")
+plt.ylabel("RMSE")
+plt.show()
